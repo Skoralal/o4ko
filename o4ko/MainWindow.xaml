@@ -15,11 +15,24 @@
         <!-- Workspace -->
         <StackPanel Grid.Column="0" Background="LightGray" Margin="10">
             <Button Content="Upload Image" Click="UploadImage_Click" Margin="5" />
+            <TextBlock Text="Mouse Position:" FontWeight="Bold" Margin="0,10,0,5" />
+            <TextBlock x:Name="MousePositionTextBlock" Text="X: 0, Y: 0" />
         </StackPanel>
 
         <!-- Canvas in Viewbox -->
-        <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="Both" Margin="10">
-            <Canvas x:Name="WorkingCanvas" Background="LightBlue" Width="1920" Height="1080" />
-        </Viewbox>
+        <ScrollViewer Grid.Column="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled">
+            <Canvas x:Name="WorkingCanvas" 
+                    MouseWheel="Canvas_MouseWheel"
+                    MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                    MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
+                    MouseMove="Canvas_MouseMove">
+                <Canvas.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="CanvasScaleTransform" ScaleX="1" ScaleY="1" />
+                        <TranslateTransform x:Name="CanvasTranslateTransform" X="0" Y="0" />
+                    </TransformGroup>
+                </Canvas.RenderTransform>
+            </Canvas>
+        </ScrollViewer>
     </Grid>
 </Window>
