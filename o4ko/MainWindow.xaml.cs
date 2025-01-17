@@ -3,6 +3,7 @@ using o4ko.Models;
 using o4ko.Views;
 using System;
 using System.Collections.Generic;
+using System.Runtime.Intrinsics.X86;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -26,14 +27,22 @@ namespace o4ko
         // Declare ImageModel
         private ImageModel _imageModel;
         private Point _startPoint;
+        private double _startX;
+        private double _startY;
+        private BatchReader _batchReader;
+
+        private List<ImageModel> _imageModels = new List<ImageModel>();
+        private int _currentImageIndex = 0; // Index of the currently displayed image
+
         public MainWindow()
         {
             InitializeComponent();
 
             // Initialize the ImageModel
             _imageModel = new ImageModel();
-
+            Highlight.HighlightRightClicked += Highlight_RightClicked;
             _currentImage = new Image();
+            _batchReader = new BatchReader();
         }
 
         private void UploadImage_Click(object sender, RoutedEventArgs e)
@@ -53,18 +62,18 @@ namespace o4ko
             {
                 BitmapImage bitmap = new BitmapImage(new Uri(_imageModel.ImagePath));
                 _currentImage.Source = bitmap;
-                _currentImage.Width = bitmap.PixelWidth / 2; // Adjust size if needed
-                _currentImage.Height = bitmap.PixelHeight / 2;
+                _currentImage.Width = bitmap.PixelWidth; // Adjust size if needed
+                _currentImage.Height = bitmap.PixelHeight;
 
                 // Update the scale factors based on the image size
-                _imageScaleX = _currentImage.Width / bitmap.PixelWidth;
-                _imageScaleY = _currentImage.Height / bitmap.PixelHeight;
+                _imageScaleX = _currentImage.Width;
+                _imageScaleY = _currentImage.Height;
 
                 // Center the image in the canvas
-                double canvasCenterX = WorkingCanvas.Width / 2;
-                double canvasCenterY = WorkingCanvas.Height / 2;
-                Canvas.SetLeft(_currentImage, canvasCenterX - _currentImage.Width / 2);
-                Canvas.SetTop(_currentImage, canvasCenterY - _currentImage.Height / 2);
+                double canvasCenterX = WorkingCanvas.Width;
+                double canvasCenterY = WorkingCanvas.Height;
+                Canvas.SetLeft(_currentImage, canvasCenterX - _currentImage.Width);
+                Canvas.SetTop(_currentImage, canvasCenterY - _currentImage.Height);
 
                 // Clear existing children and add the image
                 WorkingCanvas.Children.Clear();
@@ -101,6 +110,8 @@ namespace o4ko
 
                 // Convert mouse position to canvas coordinates considering transformations
                 _startPoint = e.GetPosition(WorkingCanvas);
+                _startX = _startPoint.X;
+                _startY = _startPoint.Y;
                 Point canvasPoint = _startPoint;
 
                 // Create a new highlight
@@ -142,9 +153,18 @@ namespace o4ko
                 Point canvasPoint = currentPosition;
 
                 // Calculate width and height based on mouse movement
-                double width = Math.Abs(canvasPoint.X - _currentHighlight.X);
-                double height = Math.Abs(canvasPoint.Y - _currentHighlight.Y);
-
+                double width = canvasPoint.X - _startX;
+                //if(canvasPoint.X - _currentHighlight.X < 0)
+                //{
+                //    _currentHighlight.X = canvasPoint.X;
+                //    width += _currentImage.Width / 190;
+                //}
+                double height = canvasPoint.Y - _startY;
+                //if (canvasPoint.Y - _currentHighlight.Y < 0)
+                //{
+                //    _currentHighlight.Y = canvasPoint.Y;
+                //    height += _currentImage.Height / 100;
+                //}
                 // Update highlight dimensions
                 _currentHighlight.UpdateSize(width, height);
 
@@ -190,6 +210,8 @@ namespace o4ko
                         // If the dialog is canceled, remove the highlight
                         WorkingCanvas.Children.Remove(_currentHighlight.Rectangle);
                     }
+                    HighlightReader.ReadTextFromHighlight(_currentHighlight, (BitmapSource)_currentImage.Source);
+                    UpdateHighlightsDisplay();
 
                     _currentHighlight = null;
                 }
@@ -198,6 +220,216 @@ namespace o4ko
             {
                 _isPanning = false;
                 WorkingCanvas.ReleaseMouseCapture();
+            }
+        }
+        private void Highlight_RightClicked(object sender, EventArgs e)
+        {
+            if (sender is Highlight highlight)
+            {
+                // Remove the highlight from the canvas
+                WorkingCanvas.Children.Remove(highlight.Rectangle);
+
+                // Remove the highlight from the list
+                _highlights.Remove(highlight);
+                UpdateHighlightsDisplay();
+            }
+        }
+
+        private void SavePreset_Click(object sender, RoutedEventArgs e)
+        {
+            // Prompt the user for a preset name
+            string presetName = PromptUserForPresetName();
+
+            if (!string.IsNullOrEmpty(presetName))
+            {
+                try
+                {
+                    SavePreset(presetName);
+                    MessageBox.Show($"Preset '{presetName}' saved successfully.",
+                                    "Save Preset",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to save preset: {ex.Message}",
+                                    "Error",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Error);
+                }
+            }
+            else
+            {
+                MessageBox.Show("Preset name cannot be empty.",
+                                "Error",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Error);
+            }
+        }
+
+        private void SavePreset(string presetName)
+        {
+            // Define the folder and file path
+            string presetsFolder = "Presets";
+            if (!System.IO.Directory.Exists(presetsFolder))
+            {
+                System.IO.Directory.CreateDirectory(presetsFolder);
+            }
+
+            string filePath = System.IO.Path.Combine(presetsFolder, $"{presetName}.json");
+
+            // Serialize the highlights
+            var highlightsData = _highlights.Select(h => new HighlightData
+            {
+                X = Canvas.GetLeft(h.Rectangle),
+                Y = Canvas.GetTop(h.Rectangle),
+                Width = h.Rectangle.Width,
+                Height = h.Rectangle.Height,
+                Name = h.Name,
+                DataType = h.DataType
+            });
+
+            string jsonData = System.Text.Json.JsonSerializer.Serialize(highlightsData,
+                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+
+            // Save the JSON data to a file
+            System.IO.File.WriteAllText(filePath, jsonData);
+        }
+
+        private string PromptUserForPresetName()
+        {
+            // Use a simple input dialog to get the name
+            InputDialog inputDialog = new InputDialog("Enter Preset Name:", "Save Preset");
+            if (inputDialog.ShowDialog() == true)
+            {
+                return inputDialog.ResponseText;
+            }
+            return null;
+        }
+
+        private void LoadPreset_Click(object sender, RoutedEventArgs e)
+        {
+            // Open a file dialog to select a preset
+            Microsoft.Win32.OpenFileDialog openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "JSON Files (*.json)|*.json",
+                InitialDirectory = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Presets"),
+                Title = "Select a Preset File"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                string filePath = openFileDialog.FileName;
+
+                try
+                {
+                    LoadPreset(filePath);
+                    MessageBox.Show($"Preset loaded successfully from '{filePath}'.",
+                                    "Load Preset",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to load preset: {ex.Message}",
+                                    "Error",
+                                    MessageBoxButton.OK,
+                                    MessageBoxImage.Error);
+                }
+            }
+        }
+        private void LoadPreset(string filePath)
+        {
+            // Read and deserialize the JSON data
+            string jsonData = System.IO.File.ReadAllText(filePath);
+            var loadedHighlights = System.Text.Json.JsonSerializer.Deserialize<List<HighlightData>>(jsonData);
+
+            if (loadedHighlights != null)
+            {
+                // Clear existing highlights and add the loaded ones
+                foreach (var highlightData in loadedHighlights)
+                {
+                    Highlight highlight = new Highlight(highlightData.X, highlightData.Y, highlightData.Width, highlightData.Height)
+                    {
+                        Name = highlightData.Name,
+                        DataType = highlightData.DataType
+                    };
+                    _highlights.Add(highlight);
+                    WorkingCanvas.Children.Add(highlight.Rectangle);
+                    HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
+                    UpdateHighlightsDisplay();
+                }
+            }
+        }
+
+        private void Button_Click(object sender, RoutedEventArgs e)
+        {
+            if (_highlights.Count == 0)
+            {
+                MessageBox.Show("No highlights available to generate a class.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            foreach (var highlight in _highlights)
+            {
+                //HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
+            }
+
+                var batchReader = new BatchReader();
+                var dynamicClass = batchReader.GenerateClass(_highlights, "GeneratedClass");
+
+                // Create an instance of the class with the recognized values
+                
+
+                MessageBox.Show($"Class 'aboba' generated successfully and populated.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+            
+        }
+
+        private object ConvertValue(string value, string dataType)
+        {
+            return dataType.ToLower() switch
+            {
+                "int" => int.TryParse(value, out int i) ? i : 0,
+                "double" => double.TryParse(value, out double d) ? d : 0,
+                "bool" => bool.TryParse(value, out bool b) ? b : false,
+                "float" => float.TryParse(value, out float f) ? f : 0f,
+                _ => value // Default to string
+            };
+        }
+        private void UpdateHighlightsDisplay()
+        {
+            // Clear existing children
+            HighlightsPanel.Children.Clear();
+
+            // Add each highlight as a horizontal layout
+            foreach (var highlight in _highlights)
+            {
+                StackPanel highlightEntry = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(5)
+                };
+
+                // Add TextBlock for the name
+                TextBlock nameTextBlock = new TextBlock
+                {
+                    Text = highlight.Name,
+                    FontWeight = FontWeights.Bold,
+                    Width = 100
+                };
+
+                // Add TextBlock for the recognized value
+                TextBlock valueTextBlock = new TextBlock
+                {
+                    Text = highlight.RecognizedText ?? "Not Recognized",
+                    Width = 150
+                };
+
+                // Add elements to the horizontal layout
+                highlightEntry.Children.Add(nameTextBlock);
+                highlightEntry.Children.Add(valueTextBlock);
+
+                // Add the entry to the HighlightsPanel
+                HighlightsPanel.Children.Add(highlightEntry);
             }
         }
     }

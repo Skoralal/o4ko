@@ -8,4 +8,9 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Linq.Dynamic" Version="1.0.8" />
+    <PackageReference Include="Tesseract" Version="5.2.0" />
+  </ItemGroup>
+
 </Project>

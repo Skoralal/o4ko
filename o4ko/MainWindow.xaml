@@ -15,8 +15,19 @@
         <!-- Workspace -->
         <StackPanel Grid.Column="0" Background="LightGray" Margin="10">
             <Button Content="Upload Image" Click="UploadImage_Click" Margin="5" />
+            <Button Content="Save Preset" Margin="10,10,0,0" Click="SavePreset_Click"/>
+            <Button Content="Load Preset" Width="100" Height="30" Margin="10" Click="LoadPreset_Click" />
+            <Button Content="Test" Width="100" Height="30" Margin="10" Click="Button_Click" />
             <TextBlock Text="Mouse Position:" FontWeight="Bold" Margin="0,10,0,5" />
             <TextBlock x:Name="MousePositionTextBlock" Text="X: 0, Y: 0" />
+            <TextBlock Text="Highlights:" FontWeight="Bold" Margin="0,20,0,5" />
+
+            <!-- ScrollViewer to display highlights -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Height="300">
+                <StackPanel Name="HighlightsPanel">
+                    <!-- Dynamically populated with highlight entries -->
+                </StackPanel>
+            </ScrollViewer>
         </StackPanel>
 
         <!-- Canvas in Viewbox -->
