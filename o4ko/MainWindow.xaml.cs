@@ -1,17 +1,23 @@
-﻿using o4ko.Helpers;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using o4ko.Helpers;
 using o4ko.Models;
 using o4ko.Views;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.IO;
 using System.Runtime.Intrinsics.X86;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using System.Xml;
 
 namespace o4ko
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
         private bool _isDragging = false;
         private Point _clickPosition;
@@ -30,58 +36,113 @@ namespace o4ko
         private double _startX;
         private double _startY;
         private BatchReader _batchReader;
-
+        private string _loadedPresetName = "Nameless";
         private List<ImageModel> _imageModels = new List<ImageModel>();
         private int _currentImageIndex = 0; // Index of the currently displayed image
+        List<object> _dynamicInstances = new List<object>();
+        string ImageCounterTextBlock { get => $"{_currentImageIndex + 1}/{_imageModels.Count}"; }
+        public int CurrentImageIndex
+        {
+            get => _currentImageIndex;
+            set
+            {
+                if (_currentImageIndex != value)
+                {
+                    _currentImageIndex = value;
+                    OnPropertyChanged(nameof(CurrentImageIndex));
+                    OnPropertyChanged(nameof(ImageCounterText)); // Update combined property
+                }
+            }
+        }
+
+        private int _totalImageCount;
+        public int TotalImageCount
+        {
+            get => _totalImageCount;
+            set
+            {
+                if (_totalImageCount != value)
+                {
+                    _totalImageCount = value;
+                    OnPropertyChanged(nameof(TotalImageCount));
+                    OnPropertyChanged(nameof(ImageCounterText)); // Update combined property
+                }
+            }
+        }
+
+        public string ImageCounterText => $"{CurrentImageIndex + 1}/{TotalImageCount}";
 
         public MainWindow()
         {
             InitializeComponent();
-
+            DataContext = this;
             // Initialize the ImageModel
             _imageModel = new ImageModel();
             Highlight.HighlightRightClicked += Highlight_RightClicked;
             _currentImage = new Image();
             _batchReader = new BatchReader();
         }
-
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
         private void UploadImage_Click(object sender, RoutedEventArgs e)
         {
-            string imagePath = FileManager.OpenImageDialog();
+            var imagePaths = FileManager.OpenMultipleImageDialog();
 
-            if (!string.IsNullOrEmpty(imagePath))
+            if (imagePaths != null && imagePaths.Any())
             {
-                _imageModel.ImagePath = imagePath;  // Set the image path in the model
-                LoadImage();
+                foreach (var imagePath in imagePaths)
+                {
+                    _imageModels.Add(new ImageModel { ImagePath = imagePath });
+                }
+
+                // Load the first image
+                _currentImageIndex = 0;
+                LoadImage(_currentImageIndex);
             }
         }
 
-        private void LoadImage()
+        private void LoadImage(int index)
         {
-            if (FileManager.FileExists(_imageModel.ImagePath))
+            if (index >= 0 && index < _imageModels.Count)
             {
-                BitmapImage bitmap = new BitmapImage(new Uri(_imageModel.ImagePath));
-                _currentImage.Source = bitmap;
-                _currentImage.Width = bitmap.PixelWidth; // Adjust size if needed
-                _currentImage.Height = bitmap.PixelHeight;
+                var imageModel = _imageModels[index];
 
-                // Update the scale factors based on the image size
-                _imageScaleX = _currentImage.Width;
-                _imageScaleY = _currentImage.Height;
+                if (FileManager.FileExists(imageModel.ImagePath))
+                {
+                    BitmapImage bitmap = new BitmapImage(new Uri(imageModel.ImagePath));
+                    _currentImage.Source = bitmap;
+                    _currentImage.Width = bitmap.PixelWidth; // Adjust size if needed
+                    _currentImage.Height = bitmap.PixelHeight;
 
-                // Center the image in the canvas
-                double canvasCenterX = WorkingCanvas.Width;
-                double canvasCenterY = WorkingCanvas.Height;
-                Canvas.SetLeft(_currentImage, canvasCenterX - _currentImage.Width);
-                Canvas.SetTop(_currentImage, canvasCenterY - _currentImage.Height);
+                    // Center the image in the canvas
+                    double canvasCenterX = WorkingCanvas.Width;
+                    double canvasCenterY = WorkingCanvas.Height;
+                    Canvas.SetLeft(_currentImage, canvasCenterX - _currentImage.Width);
+                    Canvas.SetTop(_currentImage, canvasCenterY - _currentImage.Height);
 
-                // Clear existing children and add the image
-                WorkingCanvas.Children.Clear();
-                WorkingCanvas.Children.Add(_currentImage);
-            }
-            else
-            {
-                MessageBox.Show("File does not exist.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    // Clear and add the image to the canvas
+                    WorkingCanvas.Children.Clear();
+                    WorkingCanvas.Children.Add(_currentImage);
+                    if (_highlights.Count == 0)
+                    {
+                        foreach (var highlight in imageModel.Highlights)
+                        {
+
+                            //_highlights.Add(highlight);
+                            WorkingCanvas.Children.Add(highlight.Rectangle);
+                            HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
+                            UpdateHighlightsDisplay();
+                        }
+                    }
+                    TotalImageCount = _imageModels.Count;
+                }
+                else
+                {
+                    MessageBox.Show($"File does not exist: {imageModel.ImagePath}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
         }
         private void Canvas_MouseWheel(object sender, MouseWheelEventArgs e)
@@ -324,6 +385,7 @@ namespace o4ko
                 try
                 {
                     LoadPreset(filePath);
+                    _loadedPresetName = filePath.Split('\\')[^1].Split('.')[0];
                     MessageBox.Show($"Preset loaded successfully from '{filePath}'.",
                                     "Load Preset",
                                     MessageBoxButton.OK,
@@ -340,6 +402,15 @@ namespace o4ko
         }
         private void LoadPreset(string filePath)
         {
+            _highlights.Clear();
+            for (int i = WorkingCanvas.Children.Count-1; i > 0; i--)
+            {
+                WorkingCanvas.Children.RemoveAt(i);
+            }
+            foreach (var image in _imageModels)
+            {
+                image.Highlights.Clear();
+            }
             // Read and deserialize the JSON data
             string jsonData = System.IO.File.ReadAllText(filePath);
             var loadedHighlights = System.Text.Json.JsonSerializer.Deserialize<List<HighlightData>>(jsonData);
@@ -369,18 +440,48 @@ namespace o4ko
                 MessageBox.Show("No highlights available to generate a class.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
-            foreach (var highlight in _highlights)
-            {
-                //HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
-            }
+            _dynamicInstances.Clear();
 
                 var batchReader = new BatchReader();
-                var dynamicClass = batchReader.GenerateClass(_highlights, "GeneratedClass");
+                var dynamicClass = batchReader.GenerateClass(_highlights, _loadedPresetName);
+            //foreach in _imageModels
+            foreach (var image in _imageModels)
+            {
+                var bitmapImage = new BitmapImage(new Uri(image.ImagePath));
+                foreach (var highlight in _highlights)
+                {
+                    var hl = new Highlight(highlight.X, highlight.Y, highlight.Width, highlight.Height)
+                    {
+                        DataType = highlight.DataType,
+                        Name = highlight.Name
+                    };
+                    HighlightReader.ReadTextFromHighlight(hl, bitmapImage);
+                    image.Highlights.Add(hl);
+                }
+            }
 
-                // Create an instance of the class with the recognized values
+            foreach (var image in _imageModels)
+            {
                 
+                object dynamicObject = Activator.CreateInstance(dynamicClass, _highlights.Select(h => ConvertValue(h.RecognizedText, h.DataType)).ToArray());
+                Type dynamicType = dynamicObject.GetType();
+                foreach (var highlight in image.Highlights)
+                {
+                    string propertyName = highlight.Name;
+                    if (dynamicType.GetProperty(propertyName) != null)
+                    {
+                        // Set the property value
+                        dynamicType.GetProperty(propertyName).SetValue(dynamicObject, ConvertValue(highlight.RecognizedText, highlight.DataType)); // Replace "New Value" with the actual value
+                    }
+                }
+                _dynamicInstances.Add(dynamicObject);
+            }
+                
+            //end foreach
+            // Create an instance of the class with the recognized values
 
-                MessageBox.Show($"Class 'aboba' generated successfully and populated.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            MessageBox.Show($"Class 'aboba' generated successfully and populated.", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             
         }
 
@@ -430,6 +531,135 @@ namespace o4ko
 
                 // Add the entry to the HighlightsPanel
                 HighlightsPanel.Children.Add(highlightEntry);
+            }
+        }
+
+        private void ExportJson_Click(object sender, RoutedEventArgs e)
+        {
+            string json = System.Text.Json.JsonSerializer.Serialize(_dynamicInstances, new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            ExportWindow exportWindow = new ExportWindow(json, "JSON");
+            exportWindow.ShowDialog();
+        }
+
+        private void ExportXml_Click(object sender, RoutedEventArgs e)
+        {
+            string ConvertJsonToXml(string jsonArrayString)
+            {
+                // Parse the JSON array
+                JArray jsonArray = JArray.Parse(jsonArrayString);
+
+                // Wrap the array in a root element for valid XML structure
+                var wrappedObject = new JObject { ["Items"] = jsonArray };
+
+                // Convert to XML
+                XmlDocument xmlDocument = JsonConvert.DeserializeXmlNode(wrappedObject.ToString(), "Root");
+
+                // Return formatted XML
+                return xmlDocument.OuterXml;
+            }
+            using (StringWriter textWriter = new StringWriter())
+            {
+                string xml = ConvertJsonToXml(System.Text.Json.JsonSerializer.Serialize(_dynamicInstances, new System.Text.Json.JsonSerializerOptions
+                {
+                    WriteIndented = true
+                }));
+
+                ExportWindow exportWindow = new ExportWindow(xml, "XML");
+                exportWindow.ShowDialog();
+            }
+        }
+
+        private void ExportSql_Click(object sender, RoutedEventArgs e)
+        {
+            string sql = GenerateSqlInsertQuery();
+
+            ExportWindow exportWindow = new ExportWindow(sql, "TXT");
+            exportWindow.ShowDialog();
+        }
+
+        private string GenerateSqlInsertQuery()
+        {
+            if (_dynamicInstances == null || _dynamicInstances.Count == 0)
+                throw new ArgumentException("Invalid data for SQL generation.");
+            var fieldNames = _dynamicInstances[0].GetType().GetProperties().Select(p => p.Name).ToList();
+            // Start building the query
+            StringBuilder queryBuilder = new StringBuilder();
+            queryBuilder.AppendLine($"INSERT INTO {_loadedPresetName} ({string.Join(", ", fieldNames)}) VALUES");
+
+            // Iterate through instances and add their values
+            for (int i = 0; i < _dynamicInstances.Count; i++)
+            {
+                var instance = _dynamicInstances[i];
+                List<string> values = new List<string>();
+
+                foreach (var fieldName in fieldNames)
+                {
+                    var value = instance.GetType().GetProperty(fieldName)?.GetValue(instance);
+                    if (value is string)
+                    {
+                        values.Add($"'{value.ToString().Replace("'", "''")}'"); // Escape single quotes
+                    }
+                    else if (value == null)
+                    {
+                        values.Add("NULL");
+                    }
+                    else
+                    {
+                        values.Add(value.ToString());
+                    }
+                }
+
+                // Format values and append
+                queryBuilder.Append($"({string.Join(", ", values)})");
+
+                if (i < _dynamicInstances.Count - 1)
+                    queryBuilder.AppendLine(","); // Add a comma between rows
+                else
+                    queryBuilder.AppendLine(";"); // End the query with a semicolon
+            }
+
+            return queryBuilder.ToString();
+        }
+
+        private void PreviousImage_Click(object sender, RoutedEventArgs e)
+        {
+            if(_currentImageIndex > 0)
+            {
+                _currentImageIndex--;
+                OnPropertyChanged(nameof(ImageCounterText));
+                LoadImage(_currentImageIndex);
+                foreach (var highlight in _highlights)
+                {
+                    if (!WorkingCanvas.Children.Contains(highlight.Rectangle))
+                    {
+                        WorkingCanvas.Children.Add(highlight.Rectangle);
+                    }
+                    HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
+                    UpdateHighlightsDisplay();
+                }
+            }
+        }
+
+        private void NextImage_Click(object sender, RoutedEventArgs e)
+        {
+            if( _currentImageIndex < _imageModels.Count -1 )
+            {
+                _currentImageIndex++;
+                OnPropertyChanged(nameof(ImageCounterText));
+                LoadImage(_currentImageIndex);
+                foreach (var highlight in _highlights)
+                {
+                    if (!WorkingCanvas.Children.Contains(highlight.Rectangle))
+                    {
+                        WorkingCanvas.Children.Add(highlight.Rectangle);
+                    }
+                    HighlightReader.ReadTextFromHighlight(highlight, (BitmapSource)_currentImage.Source);
+                    UpdateHighlightsDisplay();
+                }
             }
         }
     }
