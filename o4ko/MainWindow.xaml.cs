@@ -432,7 +432,7 @@ namespace o4ko
                 }
             }
         }
-
+        //
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             if (_highlights.Count == 0)
