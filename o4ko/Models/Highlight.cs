@@ -15,6 +15,8 @@ namespace o4ko
         public string Name { get; set; }       // Name of the highlight
         public string DataType { get; set; }   // Data type of the highlight
 
+        public string FieldName { get; set; }  // You can assign a name to this highlight field.
+
         public string RecognizedText { get; set; }
 
         public Highlight(double x, double y, double width, double height)

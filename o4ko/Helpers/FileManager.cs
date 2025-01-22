@@ -16,17 +16,5 @@ namespace o4ko.Helpers
         }
 
         public static bool FileExists(string path) => File.Exists(path);
-        public static List<string> OpenMultipleImageDialog()
-        {
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "Image Files (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp",
-                Multiselect = true
-            };
-
-            return openFileDialog.ShowDialog() == true ? openFileDialog.FileNames.ToList() : null;
-        }
-
     }
-
 }

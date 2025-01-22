@@ -17,7 +17,7 @@ namespace o4ko.Helpers
         /// <param name="highlights">List of highlights with their names, data types, and values.</param>
         /// <param name="className">Name of the class to generate.</param>
         /// <returns>The Type of the dynamically created class.</returns>
-        public Type GenerateClass(List<Highlight> highlights, string className)
+        public object GenerateClass(List<Highlight> highlights, string className)
         {
             if (highlights == null || highlights.Count == 0)
                 throw new ArgumentException("Highlight list cannot be null or empty.");
@@ -44,18 +44,8 @@ namespace o4ko.Helpers
 
             DefineConstructor(typeBuilder, highlights, constructorParams.ToArray());
 
-
-            ConstructorBuilder constructorBuilder = typeBuilder.DefineConstructor(
-               MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
-
-            ILGenerator ctorIl = constructorBuilder.GetILGenerator();
-            ctorIl.Emit(OpCodes.Ldarg_0);
-            ctorIl.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes));
-            ctorIl.Emit(OpCodes.Ret);
-
             // Create the type
             var aboba = typeBuilder.CreateType();
-            return aboba;
             object dynamicObject = Activator.CreateInstance(aboba, highlights.Select(h => ConvertValue(h.RecognizedText, h.DataType)).ToArray());
             Type dynamicType = dynamicObject.GetType();
             foreach (var highlight in highlights)
@@ -68,7 +58,7 @@ namespace o4ko.Helpers
                 }
             }
 
-            //return dynamicObject;
+            return dynamicObject;
         }
 
         /// <summary>

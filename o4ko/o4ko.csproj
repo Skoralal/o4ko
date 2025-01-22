@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Linq.Dynamic" Version="1.0.8" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
   </ItemGroup>
