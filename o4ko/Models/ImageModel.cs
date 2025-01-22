@@ -8,7 +8,7 @@ namespace o4ko.Models
         private string _imagePath;
         private double _positionX;
         private double _positionY;
-
+        public List<Highlight> Highlights { get; set; } = new List<Highlight>();
         public string ImagePath
         {
             get => _imagePath;

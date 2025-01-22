@@ -82,7 +82,7 @@ namespace o4ko.Helpers
                 using (var page = engine.Process(image))
                 {
                     string aboba = page.GetText();
-                    return aboba;
+                    return aboba.Trim();
                 }
             }
         }
